@@ -1,0 +1,287 @@
+---
+title: "Exercise_11"
+output: html_document
+date: "2024-04-01"
+---
+Before we get started, we will load all the packages needed and load the data set.
+```{r}
+new_pkg <- c("tidyverse", "dplyr", "mosaic", "ggplot2", "infer", "skimr", "cowplot", "broom")
+not_installed <- new_pkg[!new_pkg %in% rownames(installed.packages())]
+if (length(not_installed) > 0) install.packages(not_installed) 
+
+library("tidyverse")
+library("dplyr")
+library("mosaic")
+library("ggplot2")
+library("infer")
+library("skimr")
+library("cowplot")
+library("broom")
+```
+
+```{r}
+f <- "https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/AVONETdataset1.csv"
+d <- read_csv(f) %>%
+  select(Species1, Family1, Order1, Beak.Length_Culmen, Beak.Width, Beak.Depth, Tarsus.Length, Wing.Length, Tail.Length, Mass, Habitat, Migration, Trophic.Level, Trophic.Niche, Min.Latitude, Max.Latitude, Centroid.Latitude, Primary.Lifestyle, Range.Size)
+
+skim(d)
+```
+The output indicates 7 variables are categorical and 12 are numeric. They were listed in the following output. 
+  character                7     
+  numeric                  12   
+
+Challenge 1
+Step 1
+```{r}
+d_1 <- d %>%
+  mutate(Migration = as.factor(Migration)) %>%
+  mutate(logMass = log(Mass)) %>%
+  drop_na(Trophic.Level, Migration)
+
+skim(d_1)
+```
+We use skim() to confirm that Migration variable is successfully converted to a factor variable.
+
+```{r}
+p1 <- ggplot(d_1, aes(Trophic.Level, logMass)) +
+    geom_boxplot()
+p2 <- ggplot(d_1, aes(Migration, logMass)) +
+    geom_boxplot()
+
+plot_grid(p1,p2)
+```
+
+Step 2
+```{r}
+m_TL <- lm(logMass ~ Trophic.Level, data = d_1)
+summary(m_TL)
+```
+
+```{r}
+m_M <- lm(logMass ~ Migration, data = d_1)
+summary(m_M)
+```
+In both summaries, in the global test of significance, the F statistics are large enough to reject the null hypothesis of an F value of zero. Variable log(Mass) is associated with both categories. Both Migration 2 and Migration 3 are different from the reference level (Migration 1)
+
+```{r}
+d_1$Migration <- relevel(d_1$Migration, ref = "2")
+m_M_relevel <- lm(logMass ~ Migration, data = d_1)
+summary(m_M_relevel)
+```
+The missing pair Migration2 and Migration3 are also different.
+
+Step 3
+```{r}
+m_M_aov <- aov(logMass ~ Migration, data = d_1)
+posthoc <- TukeyHSD(m_M_aov, which = "Migration", ordered = TRUE, conf.level = 0.95)
+posthoc
+```
+All categories are significantly different from one another.
+
+Step 4
+```{r}
+m_TL_aov <- aov(logMass ~ Trophic.Level, data = d_1)
+```
+
+
+```{r}
+original.F <- m_TL_aov %>%
+  tidy() %>%
+  filter(term=="Trophic.Level")
+original.F
+```
+
+```{r}
+permuted.F <- d_1 %>%
+  specify(logMass ~ Trophic.Level) %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 1000, type = "permute") %>%
+  calculate(stat = "F")
+
+visualize(permuted.F) +
+  shade_p_value(obs_stat=original.F$statistic, direction="greater")
+
+```
+
+```{r}
+(p.value <- permuted.F %>%
+  get_p_value(obs_stat = original.F$statistic, direction="greater"))
+```
+
+Challenge 2
+Step 1
+In the following chunks, two coefficients are calculated and named by themselves.
+```{r}
+d_2 <- d_1 %>%
+  mutate(logBL = log(Beak.Length_Culmen)) %>%
+  mutate(logTaL = log(Tarsus.Length)) %>%
+
+```
+
+```{r}
+m_BL <- lm(logBL ~ logMass, data = d_2)
+m_TaL <- lm(logTaL ~ logMass, data = d_2)
+```
+
+```{r}
+d_2 <- d_2 %>%
+  mutate(relBL = m_BL$residuals) %>%
+  mutate(relTaL = m_TaL$residuals)
+```
+For convenience's sake, I didn't directly use the name provided in the prompt word-by-word (Relative beak length, Relative tarsus length)
+
+Step 2
+```{r}
+p3 <- ggplot(d_2, aes(Primary.Lifestyle, relTaL)) +
+    geom_boxplot()
+p4 <- ggplot(d_2, aes(Trophic.Niche, relBL)) +
+    geom_boxplot()
+
+plot_grid(p3,p4)
+```
+
+Step 3
+```{r}
+betas_ct <- lm_radiation("Catarrhini")
+```
+
+```{r}
+betas_pl <- lm_radiation("Platyrrhini")
+```
+
+
+```{r}
+betas_st <- lm_radiation("Strepsirhini")
+```
+
+Beta0s (intercepts) are highly different; those of platyrrhines and strepsirhines share relatively closer intercepts. Platyrrhines and strepsirhines share relatively similar beta1s (slopes), whereas they are different from that of catarrhines.
+
+Step 6
+```{r}
+d6 <- d3 %>%
+  mutate(ECVhat = beta0 + beta1 * Group_size) %>%
+  mutate(residuals = ECV -ECVhat)
+str(d6)
+```
+
+SE for the slope coefficient by hand:
+```{r}
+(df_regression <- 1) 
+(df_error <- nrow(d6) - df_regression - 1) 
+```
+
+```{r}
+SSE <- sum((d6$residuals)^2)
+SSE
+```
+
+```{r}
+(MSE <- SSE/df_error) 
+```
+
+```{r}
+SSX <- sum((d6$Group_size - mean(d6$Group_size))^2)
+SEbeta1 <- sqrt(MSE/SSX)
+SEbeta1
+
+```
+
+SE for the slope coefficient extracted from the model:
+```{r}
+m.summary <- tidy(m)
+tidy(m)$std.error[2]
+tidy(m)$p.value[2]
+```
+In the chunk above, the p value is extracted as well.
+
+The 95% CI by hand:
+```{r}
+alpha <- 0.05
+```
+
+```{r}
+(lower <- beta1 - qt(1 - alpha/2, df = nrow(d6) - 2) * SEbeta1)
+(upper <- beta1 + qt(1 - alpha/2, df = nrow(d6) - 2) * SEbeta1)
+```
+
+The 95% CI extracted from model:
+```{r}
+CI <- confint(m, level = 1 - alpha)
+CI[2,1:2]
+```
+
+p value calculated by hand:
+```{r}
+calc.statistic <- (beta1 - 0)/SEbeta1
+(p <- 2 * pt(calc.statistic, df = nrow(d6) - 2, lower.tail = FALSE))
+```
+p value was already extracted earlier.
+
+Step 8
+We need to permute slope coefficient estimates. The sentence from Module 18 explain what we need to permute: "essentially, each permutation involves randomly shuffling values of the response variable under the null hypothesis that they are independent of the explanatory variable."
+```{r}
+alpha <- 0.05
+confidence_level <- 1 - alpha
+p_lower <- alpha/2
+p_upper <- 1 - (alpha/2)
+degrees_of_freedom <- nrow(d6) - 2
+critical_value <- qt(p_upper, df = degrees_of_freedom)
+
+original.slope <- m %>%
+tidy(conf.int = TRUE, conf.level = confidence_level) %>%
+mutate(lower = estimate - std.error * critical_value, upper = estimate + std.error *
+    critical_value) %>%
+    filter(term == "Group_size")
+original.slope 
+```
+
+```{r}
+permuted.slope <- d6 %>%
+  specify(ECV ~ Group_size) %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 1000, type = "permute") %>%
+  calculate(stat = "slope")
+
+head(permuted.slope)
+```
+
+```{r}
+permuted.slope.summary <- permuted.slope %>%
+  summarize(
+    estimate = mean(stat)
+  )
+
+permuted.slope.summary
+```
+
+```{r}
+(p.value <- permuted.slope %>%
+  get_p_value(obs_stat = original.slope$estimate, direction="two_sided"))
+```
+The p value is 0.
+
+Step 8
+```{r}
+boot.slope <- d6 %>%
+  specify(ECV ~ Group_size) %>%
+  generate(reps = 1000, type = "bootstrap") %>%
+  calculate(stat = "slope")
+
+head(boot.slope)
+```
+```{r}
+boot.slope.summary <- boot.slope %>%
+  summarize(
+    estimate = mean(stat)
+  )
+
+boot.slope.summary
+```
+
+```{r}
+(CI.percentile <- get_ci(boot.slope, level = 1 - alpha, type = "percentile"))
+(CI.theory <- get_ci(boot.slope, level = 1 - alpha, type = "se", point_estimate = pull(boot.slope.summary,
+    estimate)))
+```
+
+These CIs suggest that beta1 (slope coefficient) is different from zero.
