@@ -35,17 +35,16 @@ Step 1
 ```{r}
 d_1 <- d %>%
   mutate(Migration = as.factor(Migration)) %>%
-  mutate(logMass = log(Mass)) %>%
-  drop_na(Trophic.Level, Migration)
+  mutate(logMass = log(Mass))
 
 skim(d_1)
 ```
 We use skim() to confirm that Migration variable is successfully converted to a factor variable.
 
 ```{r}
-p1 <- ggplot(d_1, aes(Trophic.Level, logMass)) +
+p1 <- ggplot(drop_na(d_1, Trophic.Level), aes(Trophic.Level, logMass)) +
     geom_boxplot()
-p2 <- ggplot(d_1, aes(Migration, logMass)) +
+p2 <- ggplot(drop_na(d_1, Migration), aes(Migration, logMass)) +
     geom_boxplot()
 
 plot_grid(p1,p2)
@@ -67,8 +66,9 @@ In both summaries, in the global test of significance, the F statistics are larg
 d_1$Migration <- relevel(d_1$Migration, ref = "2")
 m_M_relevel <- lm(logMass ~ Migration, data = d_1)
 summary(m_M_relevel)
+d_1$Migration <- relevel(d_1$Migration, ref = "1")
 ```
-The missing pair Migration2 and Migration3 are also different.
+The missing pair Migration2 and Migration3 are also different. The last line in this chunk is for dataset use in other chunks (e.g., in previous model running).
 
 Step 3
 ```{r}
@@ -114,7 +114,7 @@ In the following chunks, two coefficients are calculated and named by themselves
 ```{r}
 d_2 <- d_1 %>%
   mutate(logBL = log(Beak.Length_Culmen)) %>%
-  mutate(logTaL = log(Tarsus.Length)) %>%
+  mutate(logTaL = log(Tarsus.Length))
 
 ```
 
@@ -142,146 +142,201 @@ plot_grid(p3,p4)
 
 Step 3
 ```{r}
-betas_ct <- lm_radiation("Catarrhini")
+d_3 <- d_2 %>%
+  drop_na(Migration)
+
+hist(d_3$Range.Size)
+```
+The shape indicates that we had better log transform the variable.
+
+```{r}
+d_3 <- d_3 %>%
+  mutate(logRS = log(Range.Size))
 ```
 
 ```{r}
-betas_pl <- lm_radiation("Platyrrhini")
+m_RSM_aov <- aov(logRS ~ Migration, data = d_3)
+summary(m_RSM_aov)
+```
+Based on the global model, logRS is associated with form of migration. We also need to calculate the “R-squared value.”
+
+```{r}
+SSR <- sum((m_RSM_aov$fitted.values - mean(m_RSM_aov$model$logRS))^2)
+SSR
+```
+
+```{r}
+SSY <- sum((m_RSM_aov$model$logRS - mean(m_RSM_aov$model$logRS))^2)
+SSY
+```
+
+```{r}
+rsq <- SSR/SSY
+rsq
+```
+
+About 8.69% of the variance in the measure of range size is associated with Migration behavior style.
+
+```{r}
+m_RSM <- lm(logRS ~ Migration, data = d_3)
+summary(m_RSM)
+```
+The reference level is Migration1. Both Migration2 and Migration3 are different from Migration1. The Multiple R-squared value in the lm model is the same with R-squared value calculated from aov model.
+
+```{r}
+d_3$Migration <- relevel(d_3$Migration, ref = "2")
+m_RSM_relevel <- lm(logRS ~ Migration, data = d_3)
+summary(m_RSM_relevel)
+d_3$Migration <- relevel(d_3$Migration, ref = "1")
+```
+The missing pair Migration2 and Migration3 are also different. Again we just relevel the variable back.
+
+```{r}
+posthoc_3 <- TukeyHSD(m_RSM_aov, which = "Migration", ordered = TRUE, conf.level = 0.95)
+posthoc_3
+
+```
+All categories are significantly different from one another.
+
+Step 4
+We will directly filter from d_2 as the dataset where relBL is already available without any unwanted drop_na().
+```{r}
+d_4 <- d_2 %>%
+  filter(Order1 == "Passeriformes") %>%
+  mutate(PLTL = interaction(Primary.Lifestyle, Trophic.Level))
+```
+
+Here are some boxplots.
+```{r}
+p5 <- ggplot(d_4, aes(Primary.Lifestyle, relBL)) +
+    geom_boxplot()
+p6 <- ggplot(d_4, aes(Trophic.Level, relBL)) +
+    geom_boxplot()
+p7 <- ggplot(d_4, aes(PLTL, relBL)) +
+    geom_boxplot() +
+  theme(axis.text.x = element_text(size = 5,angle = 270))
+
+plot_grid(p5,p6,p7)
+```
+```{r}
+m_relBLPL <- lm(relBL ~ Primary.Lifestyle, data = d_4)
+summary(m_relBLPL)
 ```
 
 
 ```{r}
-betas_st <- lm_radiation("Strepsirhini")
+m_relBLPL_aov <- aov(relBL ~ Primary.Lifestyle, data = d_4)
+summary(m_relBLPL_aov)
 ```
 
-Beta0s (intercepts) are highly different; those of platyrrhines and strepsirhines share relatively closer intercepts. Platyrrhines and strepsirhines share relatively similar beta1s (slopes), whereas they are different from that of catarrhines.
+```{r}
+m_relBLTL <- lm(relBL ~ Trophic.Level, data = d_4)
+summary(m_relBLTL)
+```
+
+```{r}
+m_relBLTL_aov <- aov(relBL ~ Trophic.Level, data = d_4)
+summary(m_relBLTL_aov)
+```
+relBL is associated with both PL and TL. In each aov() model, PL or TL yields a main effect. PL and TL explain about 6% and 5% of total variance respectively in their separate one-way models.
+
+Step 5
+```{r}
+m_5 <- aov(relBL ~ Primary.Lifestyle + Trophic.Level, data = d_4)
+summary(m_5)
+```
+There is still a main effect of PL when taking TL into account and there is a main effect of TL when we take PL into account.
 
 Step 6
 ```{r}
-d6 <- d3 %>%
-  mutate(ECVhat = beta0 + beta1 * Group_size) %>%
-  mutate(residuals = ECV -ECVhat)
-str(d6)
+m_5 <- aov(relBL ~ Primary.Lifestyle + Trophic.Level + Primary.Lifestyle:Trophic.Level, data = d_4)
+summary(m_5)
+```
+It looks like there is indeed a significant main effect of each variable (TL; PL) as well as an interaction between the two.
+
+Step 7
+```{r}
+interaction.plot(
+  x.factor = d_4$Primary.Lifestyle,
+  xlab = "Primary.Lifestyle",
+  trace.factor = d_4$Trophic.Level,
+  trace.label = "Trophic.Level",
+  response = d_4$relBL,
+  fun = base::mean,
+  ylab = "Mean Relative beak length"
+)
 ```
 
-SE for the slope coefficient by hand:
+Additional Steps
+There were multiple models in this assignment. We will take Challenge 2 Step 4 to Step 7 model groups as examples (on "Passeriformes"). As noted in Module 20, a general rule of thumb for “equal” variances is to compare the largest and smallest within-grouping level standard deviations and, if this value is less than 2.
 ```{r}
-(df_regression <- 1) 
-(df_error <- nrow(d6) - df_regression - 1) 
+stats <- d_4 %>% 
+  group_by(Primary.Lifestyle, Trophic.Level) %>%
+  summarize("mean(relBL)" = mean(relBL),
+    "sd(relBL)"= sd(relBL))
+(max(stats$`sd(relBL)`)/min(stats$`sd(relBL)`))
 ```
 
-```{r}
-SSE <- sum((d6$residuals)^2)
-SSE
-```
+If we directly jump to two-variable ANOVA and keep the rule of thumb "less than 2," the dataset doesn't pass the check. However, if we check two variables separately the stories are different.
 
 ```{r}
-(MSE <- SSE/df_error) 
-```
-
-```{r}
-SSX <- sum((d6$Group_size - mean(d6$Group_size))^2)
-SEbeta1 <- sqrt(MSE/SSX)
-SEbeta1
-
-```
-
-SE for the slope coefficient extracted from the model:
-```{r}
-m.summary <- tidy(m)
-tidy(m)$std.error[2]
-tidy(m)$p.value[2]
-```
-In the chunk above, the p value is extracted as well.
-
-The 95% CI by hand:
-```{r}
-alpha <- 0.05
+stats_PL <- d_4 %>% 
+  group_by(Primary.Lifestyle) %>%
+  summarize("mean(relBL)" = mean(relBL),
+    "sd(relBL)"= sd(relBL))
+(max(stats_PL$`sd(relBL)`)/min(stats_PL$`sd(relBL)`))
 ```
 
 ```{r}
-(lower <- beta1 - qt(1 - alpha/2, df = nrow(d6) - 2) * SEbeta1)
-(upper <- beta1 + qt(1 - alpha/2, df = nrow(d6) - 2) * SEbeta1)
+stats_TL <- d_4 %>% 
+  group_by(Trophic.Level) %>%
+  summarize("mean(relBL)" = mean(relBL),
+    "sd(relBL)"= sd(relBL))
+(max(stats_TL$`sd(relBL)`)/min(stats_TL$`sd(relBL)`))
 ```
 
-The 95% CI extracted from model:
+Here are some other visual checks for PL:
 ```{r}
-CI <- confint(m, level = 1 - alpha)
-CI[2,1:2]
-```
+p8 <- ggplot(d_4, aes(relBL))+
+  geom_histogram()+
+  facet_wrap(~Primary.Lifestyle)
+p9 <- ggplot(d_4, aes(relBL))+
+  geom_histogram()+
+  facet_wrap(~Trophic.Level)
+p10 <- ggplot(d_4, aes(relBL))+
+  geom_histogram()+
+  facet_wrap(~PLTL)
 
-p value calculated by hand:
-```{r}
-calc.statistic <- (beta1 - 0)/SEbeta1
-(p <- 2 * pt(calc.statistic, df = nrow(d6) - 2, lower.tail = FALSE))
-```
-p value was already extracted earlier.
-
-Step 8
-We need to permute slope coefficient estimates. The sentence from Module 18 explain what we need to permute: "essentially, each permutation involves randomly shuffling values of the response variable under the null hypothesis that they are independent of the explanatory variable."
-```{r}
-alpha <- 0.05
-confidence_level <- 1 - alpha
-p_lower <- alpha/2
-p_upper <- 1 - (alpha/2)
-degrees_of_freedom <- nrow(d6) - 2
-critical_value <- qt(p_upper, df = degrees_of_freedom)
-
-original.slope <- m %>%
-tidy(conf.int = TRUE, conf.level = confidence_level) %>%
-mutate(lower = estimate - std.error * critical_value, upper = estimate + std.error *
-    critical_value) %>%
-    filter(term == "Group_size")
-original.slope 
+plot_grid(p8,p9,p10)
 ```
 
 ```{r}
-permuted.slope <- d6 %>%
-  specify(ECV ~ Group_size) %>%
-  hypothesize(null = "independence") %>%
-  generate(reps = 1000, type = "permute") %>%
-  calculate(stat = "slope")
+p11 <- ggplot(m_relBLPL_aov, aes(m_relBLPL_aov$residuals))+
+  geom_histogram()+
+  facet_wrap(~Primary.Lifestyle)
+p12 <- ggplot(m_relBLTL_aov, aes(m_relBLTL_aov$residuals))+
+  geom_histogram()+
+  facet_wrap(~Trophic.Level)
 
-head(permuted.slope)
+
+plot_grid(p11,p12)
 ```
 
 ```{r}
-permuted.slope.summary <- permuted.slope %>%
-  summarize(
-    estimate = mean(stat)
-  )
+p13 <- ggplot(m_5, aes(m_5$residuals))+
+  geom_histogram()+
+  facet_wrap(~Primary.Lifestyle+Trophic.Level)
 
-permuted.slope.summary
+p13
 ```
 
-```{r}
-(p.value <- permuted.slope %>%
-  get_p_value(obs_stat = original.slope$estimate, direction="two_sided"))
-```
-The p value is 0.
 
-Step 8
-```{r}
-boot.slope <- d6 %>%
-  specify(ECV ~ Group_size) %>%
-  generate(reps = 1000, type = "bootstrap") %>%
-  calculate(stat = "slope")
 
-head(boot.slope)
-```
-```{r}
-boot.slope.summary <- boot.slope %>%
-  summarize(
-    estimate = mean(stat)
-  )
 
-boot.slope.summary
-```
 
-```{r}
-(CI.percentile <- get_ci(boot.slope, level = 1 - alpha, type = "percentile"))
-(CI.theory <- get_ci(boot.slope, level = 1 - alpha, type = "se", point_estimate = pull(boot.slope.summary,
-    estimate)))
-```
 
-These CIs suggest that beta1 (slope coefficient) is different from zero.
+
+
+
+
+
